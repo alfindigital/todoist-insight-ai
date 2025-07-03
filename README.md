@@ -7,6 +7,7 @@ A powerful dashboard for Todoist users that provides deep insights into task man
 
 ## Features
 
+- 🤖 **AI-Powered Insights** - Intelligent analysis and recommendations powered by Google Gemini
 - 📊 Comprehensive task analytics and insights
 - 📈 Productivity scoring and trends
 - 🔄 Recurring task tracking and habit analytics
@@ -64,8 +65,13 @@ yarn install
    # NextAuth Configuration
    NEXTAUTH_URL=http://localhost:3000
    NEXTAUTH_SECRET=your-nextauth-secret-key
+   
+   # Gemini AI Integration
+   GEMINI_API_KEY=your-gemini-api-key
    ```
-   Note: Generate a secure NEXTAUTH_SECRET using `openssl rand -base64 32` or another secure method
+   Note: 
+   - Generate a secure NEXTAUTH_SECRET using `openssl rand -base64 32` or another secure method
+   - Get your Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 4. Run the development server:
 ```bash
@@ -75,6 +81,15 @@ yarn dev
 ```
 
 5. Open [http://localhost:3000](http://localhost:3000) in your browser and authenticate with your Todoist account.
+
+## AI Insights Setup
+
+The dashboard now includes AI-powered insights using Google Gemini. For detailed setup instructions and usage guide in Indonesian, see [AI_INSIGHTS_GUIDE.md](AI_INSIGHTS_GUIDE.md).
+
+Quick setup:
+1. Get your Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Add `GEMINI_API_KEY=your-api-key` to your `.env.local` file
+3. Restart the application
 
 ## Contributing
 

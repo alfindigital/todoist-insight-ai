@@ -4,6 +4,7 @@ import { Tooltip } from 'react-tooltip';
 import ActiveTasksByProject from './ActiveTasksByProject';
 import CompletedTasksByProject from './CompletedTasksByProject';
 import Insights from './Insights';
+import AIInsights from './AIInsights';
 import RecentlyCompletedList from './RecentlyCompleted/RecentlyCompletedList';
 import CompletedTasksOverTime from './CompletedTasksOverTime';
 import TaskPriority from './TaskPriority';
@@ -159,7 +160,19 @@ export default function Dashboard(): JSX.Element {
 
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            {/* Insights Section */}
+            {/* AI Insights Section */}
+            <div className="lg:col-span-3">
+              <AIInsights
+                allData={{
+                  ...data,
+                  activeTasks: filteredActiveTasks,
+                  allCompletedTasks: filteredCompletedTasks
+                }}
+                isLoading={isLoading}
+              />
+            </div>
+
+            {/* Traditional Insights Section */}
             <div className="lg:col-span-3">
               <Insights
                 allData={{
