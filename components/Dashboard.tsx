@@ -24,6 +24,7 @@ import ProjectPicker from './ProjectPicker';
 import TaskLeadTime from './TaskLeadTime';
 import ProjectVelocity from './ProjectVelocity';
 import CompletionHeatmap from './CompletionHeatmap';
+import AICoach from './AICoach';
 
 export default function Dashboard(): JSX.Element {
   const { status } = useSession();
@@ -156,6 +157,18 @@ export default function Dashboard(): JSX.Element {
             karmaTrend={data?.karmaTrend || 'none'}
             karmaRising={data?.karmaRising || false}
           />
+
+          {/* AI Productivity Coach */}
+          <div className="mt-6">
+            <AICoach
+              allData={{
+                ...data,
+                activeTasks: filteredActiveTasks,
+                allCompletedTasks: filteredCompletedTasks,
+                projectData: filteredProjects,
+              }}
+            />
+          </div>
 
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">

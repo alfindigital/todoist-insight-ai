@@ -155,3 +155,26 @@ export type TodoistColor =
   | 'charcoal'
   | 'grey'
   | 'taupe';
+
+// Compact, privacy-conscious summary of a user's productivity data.
+// Sent to the AI coach endpoint (aggregates + small samples, not raw tasks).
+export interface AIInsightSummary {
+  generatedAt: string;
+  totalCompletedTasks: number;
+  activeTaskCount: number;
+  projectCount: number;
+  karma: number;
+  karmaTrend: string;
+  dailyGoal: number;
+  weeklyGoal: number;
+  productivityScore: number;
+  mostProductiveDay: { date: string; count: number } | null;
+  focusTimeRange: { startTime: string; endTime: string; count: number } | null;
+  bestDayOfWeek: { day: string; averageCount: number } | null;
+  completionRates: { daily: number; weekly: number; monthly: number };
+  last7DaysCompleted: number[];
+  topProjects: { name: string; completedTasks: number }[];
+  recentCompletedSample: string[];
+  neglectedActiveTasks: { content: string; ageDays: number }[];
+  tasksByPriority: { p1: number; p2: number; p3: number; p4: number };
+}
