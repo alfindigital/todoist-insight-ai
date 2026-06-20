@@ -21,8 +21,10 @@
 - **What we added:** an opt-in panel near the top of the dashboard. Click **"✨ Analyze with
   AI"** → a compact summary of your Todoist data is sent to Claude → you get a short,
   personalized assessment + 3–5 concrete recommendations (rendered as Markdown).
-- **Status:** feature built, local `next build` passes, deployed green on Vercel.
-  Draft **PR #1**: https://github.com/alfindigital/todoist-insight-ai/pull/1
+- **Status:** AI Coach **merged to `main`** (PR #1 merged, merge commit `a07a819`). Production
+  deploys `main`, so the feature is in the production build. Remaining to actually *use* it: the
+  owner sets the auth env vars + Todoist redirect URL + `ANTHROPIC_API_KEY`, then redeploys
+  (see §Auth and §"Immediate next step").
 - **Owner is a non-coder** — explain things in plain language and guide click-by-click.
 
 ---
@@ -44,6 +46,11 @@
    on the deployment, it loops back to login. Diagnosed as a config issue (NOT a code bug) —
    see Knowledge §“Auth & the login-loop”. Fix is env + Todoist redirect-URL + use a stable
    domain. Awaiting owner to confirm their `NEXTAUTH_URL` and which URL they log in on.
+6. **Merged PR #1 to `main`** (later session, owner-approved). Marked the draft ready and merged
+   (merge commit `a07a819`); Vercel auto-started a **production** deploy of `main`. Identified the
+   **stable production domain** via the Vercel API — **`todoist-insight-ai.vercel.app`** — and gave
+   the owner the exact config values (`NEXTAUTH_URL`, Todoist redirect URL, `ANTHROPIC_API_KEY`);
+   see §Auth. Now waiting on the owner to set those (Vercel env + Todoist console) and **Redeploy**.
 
 ---
 
@@ -58,8 +65,9 @@
   config — no database is required.
 
 ### Repo & branches
-- Dev branch: **`claude/youthful-brown-167lf2`** (all work + PR #1 live here). Develop here,
-  commit, push, keep the PR updated. Don't push to `main` without explicit permission.
+- **PR #1 is merged**; its dev branch `claude/youthful-brown-167lf2` is done. `main` now contains
+  the AI Coach and is the source of truth. Each new session gets its own dev branch — commit
+  there, push, open a **draft** PR, and don't push to `main` without explicit permission.
 - GitHub access in-session is via the GitHub MCP tools (`mcp__github__*`), scoped to
   `alfindigital/todoist-insight-ai`. There is no `gh` CLI.
 
@@ -101,7 +109,7 @@
 | Var | Purpose | Notes |
 |---|---|---|
 | `TODOIST_CLIENT_ID` / `TODOIST_CLIENT_SECRET` | Todoist OAuth app | from developer.todoist.com/appconsole.html |
-| `NEXTAUTH_URL` | Base URL of the deployment | **must exactly match the URL you browse**; `https://…`, no trailing slash |
+| `NEXTAUTH_URL` | Base URL of the deployment | **must exactly match the URL you browse**; for production use `https://todoist-insight-ai.vercel.app` (no trailing slash) |
 | `NEXTAUTH_SECRET` | Encrypts the session JWT | `openssl rand -base64 32` |
 | `ANTHROPIC_API_KEY` | Enables the AI panel | optional; without it the panel shows "not configured" |
 | `ANTHROPIC_MODEL` | Which Claude model | optional; default `claude-sonnet-4-6` |
@@ -117,9 +125,12 @@
   (classically a **Vercel per-branch preview URL** like `…-git-<hash>-….vercel.app`), the OAuth
   state / session cookie is set on the wrong host → on return the app sees "not logged in" →
   login again. **Not a code bug** — the upstream app works fine in production.
-- **Fix:** use ONE stable domain (the Vercel **Production** domain or a custom domain). Then:
-  1. `NEXTAUTH_URL` = that exact domain (https, no trailing slash).
-  2. Todoist App Console → **OAuth redirect URL** = `<NEXTAUTH_URL>/api/auth/callback/todoist`.
+- **Fix:** use ONE stable domain — for this project the Vercel **Production** domain
+  **`https://todoist-insight-ai.vercel.app`** (confirmed via the Vercel API; other prod aliases
+  exist, but use this one everywhere). Then:
+  1. `NEXTAUTH_URL` = `https://todoist-insight-ai.vercel.app` (https, no trailing slash).
+  2. Todoist App Console → **OAuth redirect URL** =
+     `https://todoist-insight-ai.vercel.app/api/auth/callback/todoist`.
   3. Ensure `NEXTAUTH_SECRET`, `TODOIST_CLIENT_ID/SECRET` set; **Redeploy**; log in on that
      same domain.
   - Preview URLs can't be used for OAuth (Todoist allows only one redirect URL). For quick
@@ -130,7 +141,10 @@
 
 ### Deployment (Vercel)
 - The repo is connected to Vercel; **every push auto-deploys**. Per-branch = preview;
-  `main`/production = stable domain (see Vercel → Domains).
+  `main`/production = stable domain. **Production domain: `https://todoist-insight-ai.vercel.app`.**
+- Vercel IDs (for the MCP tools): project `prj_7w51QkzF7boV67MrZmawSDNZWeLE`
+  (slug `todoist-insight-ai`), team `team_GJaSIfUJweQcZ0qHUcXCRKTE`
+  (slug `muhammad-alfin-as-projects`). **Env-var changes need a manual Redeploy** to take effect.
 - **CI = the Vercel commit status** (context `"Vercel"`). There are **no GitHub Actions**.
   Read it via `mcp__github__pull_request_read` (`get_status` / `get_check_runs`).
 - Webhooks deliver **CI failures + review comments**, but **not** CI success, new pushes, or
@@ -182,9 +196,8 @@ npm run lint         # lint only
 ```
 
 ### Git / PR workflow
-- Work on **`claude/youthful-brown-167lf2`**. Commit with clear messages; push with
-  `git push -u origin claude/youthful-brown-167lf2`; PR #1 updates automatically.
-- Create PRs as **drafts**. Don't push to `main` without explicit permission.
+- PR #1 is merged; `main` is the source of truth. For new work, branch off `main`, commit with
+  clear messages, push, and open a **draft** PR. Don't push to `main` without explicit permission.
 
 ### Deploy & turn the AI on
 1. Push → Vercel auto-deploys. Check status via the Vercel commit status (or the dashboard).
@@ -192,8 +205,14 @@ npm run lint         # lint only
 3. Without the key the app runs fine; the AI panel just says "not configured".
 
 ### Immediate next step (owner's blocker)
-Get login working: set `NEXTAUTH_URL` to the stable production domain, set the matching Todoist
-**OAuth redirect URL**, redeploy, and log in on that same domain. See Knowledge §Auth.
+Make the live app usable on **`https://todoist-insight-ai.vercel.app`**:
+1. Vercel → Settings → Environment Variables (Production): `NEXTAUTH_URL` =
+   `https://todoist-insight-ai.vercel.app`; add `ANTHROPIC_API_KEY` (from console.anthropic.com)
+   to switch the AI panel on; (optional) `ANTHROPIC_MODEL=claude-sonnet-4-6`.
+2. Todoist App Console → OAuth redirect URL =
+   `https://todoist-insight-ai.vercel.app/api/auth/callback/todoist`.
+3. **Redeploy** (env changes don't apply until you do), then log in on that same domain. The
+   "✨ AI Productivity Coach" panel sits near the top once `ANTHROPIC_API_KEY` is set.
 
 ### Roadmap / future AI features (owner was interested)
 - **Chat Q&A** ("ask your tasks") — needs conversation state; can reuse the summary + the
@@ -208,8 +227,8 @@ Get login working: set `NEXTAUTH_URL` to the stable production domain, set the m
    (and Vercel project, if continuing deploys).
 2. Clone the repo and open it in Claude Code — this `CLAUDE.md` loads automatically.
 3. `npm install`, copy env vars into `.env.local` (and into the new Vercel project if needed).
-4. If continuing PR #1, re-subscribe to its activity to keep auto-handling CI/review events.
-5. Pick up at "Immediate next step" (auth), then the roadmap.
+4. PR #1 is already merged into `main` — nothing to re-subscribe to there.
+5. Pick up at "Immediate next step" (turn the live app on), then the roadmap.
 
 ---
 
