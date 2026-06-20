@@ -82,13 +82,17 @@
 ### The AI feature (what / where / how)
 - **`pages/api/ai-insights.ts`** (server route):
   - `POST` only; auth-gated with `getToken({ req })` (same pattern as `getStats`/`getTasks`).
-  - Reads `ANTHROPIC_API_KEY` (server-side; never exposed to browser). If missing → friendly
+  - **Dual provider** (server-side keys, never exposed): **Gemini** (`@google/genai`, FREE —
+    default `gemini-2.5-flash`, key `GEMINI_API_KEY`) and **Claude** (`@anthropic-ai/sdk`,
+    default `claude-sonnet-4-6`, key `ANTHROPIC_API_KEY`). `resolveProvider()` prefers Gemini
+    when its key is set; `AI_PROVIDER=gemini|anthropic` forces a choice. No key → friendly
     **503 "AI not configured"** (dashboard still works without it).
-  - Model from `ANTHROPIC_MODEL`, default **`claude-sonnet-4-6`**.
-  - Calls `client.messages.create({ model, max_tokens: 2048, system, messages })`
-    (non-streaming — output is short). Returns `{ insight, model }`.
-  - Typed error handling: `Anthropic.AuthenticationError` → 502, `RateLimitError` → 429,
-    `APIError` → 502, else 500.
+  - Shared `SYSTEM_PROMPT` + `buildUserPrompt(summary)`; returns `{ insight, model, provider }`.
+    Non-streaming (output is short). Gemini uses `maxOutputTokens: 8192`; Claude `max_tokens: 2048`.
+  - Error mapping: Anthropic typed errors + Gemini/generic HTTP status (429 → rate limit,
+    400/401/403 → auth, else 500).
+  - ⚠️ Gemini **free-tier** prompts may be used by Google to train models (documented in README);
+    Claude and paid/Vertex tiers do not.
 - **`components/AICoach.tsx`** (client panel):
   - `buildSummary(allData)` produces a compact, **privacy-conscious** `AIInsightSummary`
     (aggregates + small samples, NOT raw history): productivity score (mirrors the Insights
@@ -111,8 +115,11 @@
 | `TODOIST_CLIENT_ID` / `TODOIST_CLIENT_SECRET` | Todoist OAuth app | from developer.todoist.com/appconsole.html |
 | `NEXTAUTH_URL` | Base URL of the deployment | **must exactly match the URL you browse**; for production use `https://todoist-insight-ai.vercel.app` (no trailing slash) |
 | `NEXTAUTH_SECRET` | Encrypts the session JWT | `openssl rand -base64 32` |
-| `ANTHROPIC_API_KEY` | Enables the AI panel | optional; without it the panel shows "not configured" |
+| `GEMINI_API_KEY` | Enables the AI panel (FREE) | optional; free key from aistudio.google.com/apikey; **preferred when set** |
+| `GEMINI_MODEL` | Which Gemini model | optional; default `gemini-2.5-flash` |
+| `ANTHROPIC_API_KEY` | Enables the AI panel (paid) | optional; used when no Gemini key (or `AI_PROVIDER=anthropic`) |
 | `ANTHROPIC_MODEL` | Which Claude model | optional; default `claude-sonnet-4-6` |
+| `AI_PROVIDER` | Force a provider | optional; `gemini` or `anthropic` (else auto: Gemini first) |
 - `pages/api/auth/[...nextauth].ts` **throws at module load** if any of the 4 auth vars
   (`NEXTAUTH_SECRET`, `TODOIST_CLIENT_ID`, `TODOIST_CLIENT_SECRET`, `NEXTAUTH_URL`) is missing →
   `/api/auth/*` would 500. So if OAuth even starts, those 4 are set.

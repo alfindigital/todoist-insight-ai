@@ -16,6 +16,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
     "@doist/todoist-api-typescript": "^3.0.3",
+    "@google/genai": "^2.9.0",
     "@next-auth/prisma-adapter": "^1.0.7",
     "@types/d3": "^7.4.3",
     "@types/d3-cloud": "^1.2.9",
