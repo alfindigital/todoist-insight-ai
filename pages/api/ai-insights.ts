@@ -1,14 +1,18 @@
 import { getToken } from 'next-auth/jwt';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 import type { AIInsightSummary, ErrorResponse } from '../../types';
 
-type AIInsightResponse = { insight: string; model: string };
+type Provider = 'gemini' | 'anthropic';
+type AIInsightResponse = { insight: string; model: string; provider: Provider };
 
-// Which Claude model to use. Configurable via env so it can be tuned for
-// cost vs. quality without code changes. Defaults to a balanced, cost-efficient model.
-// Cheapest: claude-haiku-4-5 | Balanced: claude-sonnet-4-6 | Most capable: claude-opus-4-8
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+// Default model per provider, both overridable via env so they can be tuned for
+// cost/quality without code changes.
+// Gemini free tier (Google AI Studio): 2.5 Flash / Flash-Lite, 3 Flash, etc.
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+// Claude: cheapest claude-haiku-4-5 | balanced claude-sonnet-4-6 | most capable claude-opus-4-8
+const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
 const SYSTEM_PROMPT = `You are a warm, practical productivity coach. You are given a JSON summary of one person's Todoist activity (completed tasks, active tasks, projects, completion rates, productivity patterns, and goals).
 
@@ -34,6 +38,133 @@ ${JSON.stringify(summary, null, 2)}
 \`\`\``;
 }
 
+type ResolvedProvider = { provider: Provider; model: string };
+
+// Decide which AI backend to use. Prefer the free provider (Gemini) when its key is
+// present so the coach works at no cost; fall back to Anthropic. An explicit
+// AI_PROVIDER env ("gemini" | "anthropic") can force a specific choice.
+function resolveProvider(): ResolvedProvider | null {
+  const explicit = (process.env.AI_PROVIDER || '').trim().toLowerCase();
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY);
+  const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
+
+  const gemini: ResolvedProvider = {
+    provider: 'gemini',
+    model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+  };
+  const anthropic: ResolvedProvider = {
+    provider: 'anthropic',
+    model: process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL,
+  };
+
+  if (explicit === 'gemini' && hasGemini) return gemini;
+  if (explicit === 'anthropic' && hasAnthropic) return anthropic;
+  if (hasGemini) return gemini;
+  if (hasAnthropic) return anthropic;
+  return null;
+}
+
+async function generateWithGemini(model: string, summary: AIInsightSummary): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const response = await ai.models.generateContent({
+    model,
+    contents: buildUserPrompt(summary),
+    config: {
+      systemInstruction: SYSTEM_PROMPT,
+      // Generous cap: short answer + any model "thinking" tokens, without truncating.
+      maxOutputTokens: 8192,
+    },
+  });
+  return (response.text ?? '').trim();
+}
+
+async function generateWithAnthropic(model: string, summary: AIInsightSummary): Promise<string> {
+  const client = new Anthropic();
+  const message = await client.messages.create({
+    model,
+    max_tokens: 2048,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: buildUserPrompt(summary) }],
+  });
+  return message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
+}
+
+// Pull an HTTP status code off an unknown error, if present (Gemini/generic errors).
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = (error as { status: unknown }).status;
+    return typeof status === 'number' ? status : undefined;
+  }
+  return undefined;
+}
+
+function mapErrorToResponse(
+  error: unknown,
+  provider: Provider
+): { status: number; body: ErrorResponse } {
+  // Anthropic's typed errors.
+  if (error instanceof Anthropic.AuthenticationError) {
+    return {
+      status: 502,
+      body: {
+        error: 'AI authentication failed',
+        details: 'The ANTHROPIC_API_KEY was rejected. Please check that it is valid.',
+      },
+    };
+  }
+  if (error instanceof Anthropic.RateLimitError) {
+    return {
+      status: 429,
+      body: {
+        error: 'AI rate limit reached',
+        details: 'Too many requests to the AI service. Please wait a moment and try again.',
+      },
+    };
+  }
+  if (error instanceof Anthropic.APIError) {
+    return { status: 502, body: { error: 'AI service error', details: error.message } };
+  }
+
+  // Gemini / generic errors expose an HTTP status code.
+  const status = getErrorStatus(error);
+  if (status === 429) {
+    return {
+      status: 429,
+      body: {
+        error: 'AI rate limit reached',
+        details:
+          provider === 'gemini'
+            ? 'Gemini free-tier limit reached. Please wait a bit and try again.'
+            : 'Too many requests to the AI service. Please wait a moment and try again.',
+      },
+    };
+  }
+  if (status === 400 || status === 401 || status === 403) {
+    return {
+      status: 502,
+      body: {
+        error: 'AI authentication failed',
+        details:
+          provider === 'gemini'
+            ? 'The GEMINI_API_KEY was rejected or invalid. Get a free key at https://aistudio.google.com/apikey and check it.'
+            : 'The AI key was rejected. Please check that it is valid.',
+      },
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error occurred',
+    },
+  };
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<AIInsightResponse | ErrorResponse>
@@ -54,12 +185,13 @@ export default async function handler(
     });
   }
 
-  // Friendly message when the AI hasn't been configured yet.
-  if (!process.env.ANTHROPIC_API_KEY) {
+  // Friendly message when no AI provider has been configured yet.
+  const selected = resolveProvider();
+  if (!selected) {
     return res.status(503).json({
       error: 'AI not configured',
       details:
-        'ANTHROPIC_API_KEY is not set on the server. Add it to your environment (.env.local) to enable AI insights.',
+        'No AI key is set on the server. Add GEMINI_API_KEY (free — get one at https://aistudio.google.com/apikey) or ANTHROPIC_API_KEY to enable AI insights.',
     });
   }
 
@@ -76,19 +208,10 @@ export default async function handler(
   }
 
   try {
-    const client = new Anthropic();
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserPrompt(summary as AIInsightSummary) }],
-    });
-
-    const insight = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('\n')
-      .trim();
+    const insight =
+      selected.provider === 'gemini'
+        ? await generateWithGemini(selected.model, summary as AIInsightSummary)
+        : await generateWithAnthropic(selected.model, summary as AIInsightSummary);
 
     if (!insight) {
       return res.status(502).json({
@@ -97,28 +220,10 @@ export default async function handler(
       });
     }
 
-    return res.status(200).json({ insight, model: MODEL });
+    return res.status(200).json({ insight, model: selected.model, provider: selected.provider });
   } catch (error) {
     console.error('Error in ai-insights API:', error);
-
-    if (error instanceof Anthropic.AuthenticationError) {
-      return res.status(502).json({
-        error: 'AI authentication failed',
-        details: 'The ANTHROPIC_API_KEY was rejected. Please check that it is valid.',
-      });
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      return res.status(429).json({
-        error: 'AI rate limit reached',
-        details: 'Too many requests to the AI service. Please wait a moment and try again.',
-      });
-    }
-    if (error instanceof Anthropic.APIError) {
-      return res.status(502).json({ error: 'AI service error', details: error.message });
-    }
-    return res.status(500).json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error occurred',
-    });
+    const mapped = mapErrorToResponse(error, selected.provider);
+    return res.status(mapped.status).json(mapped.body);
   }
 }
